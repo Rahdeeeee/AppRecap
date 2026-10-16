@@ -6,15 +6,13 @@ import streamlit as st
 
 # Konfigurasi halaman web
 st.set_page_config(
-    page_title="Dashboard Rekap Absensi & No Posting",
-    page_icon="📊",
-    layout="wide",
+    page_title="Dashboard Absensi Berbasis ID", page_icon="📊", layout="wide"
 )
 
-st.title("📊 DASHBOARD & REKAP ABSENSI (SORTED BY DEPARTEMEN & A-Z)")
+st.title("📊 DASHBOARD & REKAP ABSENSI (BERBASIS ID)")
 st.write(
-    "Unggah file Excel absensi mentah. Data pada dashboard akan otomatis"
-    " diurutkan berdasarkan Departemen dan Nama Karyawan (A-Z)."
+    "Unggah file Excel absensi mentah. Sistem akan mencocokkan data"
+    " berdasarkan ID Karyawan secara otomatis."
 )
 
 # 1. Upload File Excel Mentah
@@ -27,21 +25,22 @@ if uploaded_file is not None:
     # Membaca data Excel
     df = pd.read_excel(uploaded_file)
 
-    # Memastikan kolom penting tersedia
-    if "Waktu Absensi" in df.columns and "Nama" in df.columns:
+    # Memastikan kolom penting tersedia (termasuk ID)
+    if "Waktu Absensi" in df.columns and "ID" in df.columns:
       # Pisahkan Waktu Absensi menjadi Tanggal dan Jam
       df["Waktu Absensi"] = pd.to_datetime(df["Waktu Absensi"])
       df["Tanggal"] = df["Waktu Absensi"].dt.strftime("%d/%m/%Y")
       df["Jam"] = df["Waktu Absensi"].dt.strftime("%H:%M:%S")
 
-      # Urutkan berdasarkan Nama dan Waktu
-      df = df.sort_values(by=["Nama", "Waktu Absensi"])
+      # Urutkan berdasarkan ID dan Waktu
+      df = df.sort_values(by=["ID", "Waktu Absensi"])
 
       # Proses Detail Per Hari (untuk Sheet 1)
       rekap_detail = []
-      grouped = df.groupby(["Nama", "Tanggal", "Departemen", "Posisi"])
+      # Mengelompokkan berdasarkan ID, Nama, Tanggal, Departemen, Posisi
+      grouped = df.groupby(["ID", "Nama", "Tanggal", "Departemen", "Posisi"])
 
-      for (nama, tanggal, dept, posisi), group in grouped:
+      for (id_karyawan, nama, tanggal, dept, posisi), group in grouped:
         jam_list = sorted(group["Jam"].tolist())
 
         # Deteksi Jam Masuk dan Keluar
@@ -65,6 +64,7 @@ if uploaded_file is not None:
         hadir_flag = 1 if (jam_masuk != "" or jam_keluar != "") else 0
 
         rekap_detail.append({
+            "ID": id_karyawan,
             "Nama": nama,
             "Tanggal Masuk": tanggal,
             "Jam Masuk": jam_masuk,
@@ -79,9 +79,9 @@ if uploaded_file is not None:
 
       df_detail = pd.DataFrame(rekap_detail)
 
-      # Buat Rekap Ringkasan per Karyawan (untuk Dashboard)
+      # Buat Rekap Ringkasan per ID (Nama, Departemen, Posisi mengikuti berdasarkan ID)
       df_summary = (
-          df_detail.groupby(["Nama", "Departemen", "Posisi"])
+          df_detail.groupby(["ID", "Nama", "Departemen", "Posisi"])
           .agg(
               Total_Hadir=("Hadir_Flag", "sum"),
               No_Posting_In=("No_Posting_In_Flag", "sum"),
@@ -90,10 +90,9 @@ if uploaded_file is not None:
           .reset_index()
       )
 
-      # --- FITUR URUTKAN (SORTING) DATA ---
-      # Mengurutkan berdasarkan Departemen terlebih dahulu, lalu berdasarkan Nama (A-Z)
+      # Urutkan berdasarkan Departemen lalu ID secara A-Z
       df_summary = df_summary.sort_values(
-          by=["Departemen", "Nama"], ascending=[True, True]
+          by=["Departemen", "ID"], ascending=[True, True]
       ).reset_index(drop=True)
 
       # Persentase Kehadiran
@@ -102,8 +101,9 @@ if uploaded_file is not None:
           (df_summary["Total_Hadir"] / TARGET_HARI_KERJA) * 100
       ).round(1)
 
-      # Urutan kolom disesuaikan
+      # Urutan kolom Dashboard
       df_dashboard = df_summary[[
+          "ID",
           "Nama",
           "Departemen",
           "Posisi",
@@ -123,16 +123,14 @@ if uploaded_file is not None:
       total_np_in_all = df_dashboard["No_Posting_In"].sum()
       total_np_out_all = df_dashboard["No_Posting_Out"].sum()
 
-      # Kartu Ringkasan di atas (KPI Cards)
+      # Kartu Ringkasan (KPI Cards)
       c1, c2, c3 = st.columns(3)
       c1.metric(label="✅ TOTAL KEHADIRAN", value=total_hadir_all)
       c2.metric(label="⚠️ TOTAL NO POSTING IN", value=total_np_in_all)
       c3.metric(label="⚠️ TOTAL NO POSTING OUT", value=total_np_out_all)
 
       st.markdown("---")
-      st.subheader(
-          "📋 TABEL DASHBOARD RINGKASAN (Urut Berdasarkan Departemen & A-Z)"
-      )
+      st.subheader("📋 TABEL DASHBOARD RINGKASAN (Berdasarkan ID)")
       st.dataframe(df_dashboard, use_container_width=True)
 
       st.subheader("📄 DETAIL ABSENSI HARIAN")
@@ -157,6 +155,7 @@ if uploaded_file is not None:
       ws_detail.views.sheetView[0].showGridLines = True
 
       detail_headers = [
+          "ID",
           "Nama",
           "Tanggal Masuk",
           "Jam Masuk",
@@ -175,6 +174,7 @@ if uploaded_file is not None:
 
       for _, row in df_detail.iterrows():
         ws_detail.append([
+            row["ID"],
             row["Nama"],
             row["Tanggal Masuk"],
             row["Jam Masuk"],
@@ -189,9 +189,9 @@ if uploaded_file is not None:
       ws_dash.views.sheetView[0].showGridLines = True
 
       # Judul Dashboard di Excel
-      ws_dash.merge_cells("A1:G1")
+      ws_dash.merge_cells("A1:H1")
       ws_dash["A1"] = (
-          "DASHBOARD REKAP ABSENSI (SORTED BY DEPARTEMEN & NAMA A-Z)"
+          "DASHBOARD REKAP ABSENSI BERBASIS ID (NO POSTING IN & OUT)"
       )
       ws_dash["A1"].font = Font(
           name="Arial", size=12, bold=True, color="FFFFFF"
@@ -213,6 +213,7 @@ if uploaded_file is not None:
       # Header Tabel Dashboard (Baris 6)
       dash_headers = [
           "No",
+          "ID Karyawan",
           "Nama Karyawan",
           "Departemen",
           "Posisi",
@@ -241,6 +242,7 @@ if uploaded_file is not None:
       for _, row in df_dashboard.iterrows():
         ws_dash.append([
             row["No"],
+            row["ID"],
             row["Nama"],
             row["Departemen"],
             row["Posisi"],
@@ -255,9 +257,12 @@ if uploaded_file is not None:
 
       # 3. Tombol Download Excel
       st.download_button(
-          label="📥 Download Excel (Sorted by Departemen & A-Z)",
+          label=(
+              "📥 Download Excel Berbasis ID (Sheet 1: Detail & Sheet 2:"
+              " Dashboard)"
+          ),
           data=processed_data,
-          file_name="Dashboard_Sorted_Absensi.xlsx",
+          file_name="Dashboard_Absensi_Berbasis_ID.xlsx",
           mime=(
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           ),
@@ -265,8 +270,8 @@ if uploaded_file is not None:
 
     else:
       st.error(
-          "Format kolom pada Excel tidak sesuai! Pastikan terdapat kolom 'Nama'"
-          " dan 'Waktu Absensi'."
+          "Format kolom pada Excel tidak sesuai! Pastikan terdapat kolom 'ID' dan"
+          " 'Waktu Absensi'."
       )
 
   except Exception as e:
